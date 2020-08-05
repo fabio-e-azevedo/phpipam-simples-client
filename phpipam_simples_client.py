@@ -1,6 +1,6 @@
 import requests
 import json
-
+import argparse
 
 requests.packages.urllib3.disable_warnings()
 
@@ -22,36 +22,62 @@ class Ipam:
             method=method,
             url=self.baseurl + endpoint,
             params=params,
-            verify=self.ssl_verify, 
+            verify=self.ssl_verify,
             headers=self.headers
         )
-        return json.loads(req.text)['data']
+        if method == 'DELETE':
+            return json.loads(req.text)['message']
+        else:
+            return json.loads(req.text)['data']
 
     def login(self):
         req = requests.post(self.baseurl + '/user/', verify=self.ssl_verify, auth=(self.username, self.password))
         self.token = json.loads(req.text)['data']['token']
         self.headers['token'] = self.token
         return json.loads(req.text)['data']['expires']
-        
+
     def get_address_first_free(self, subnetId):
         params = {'subnetId': subnetId}
         req = self.__api_send_request(endpoint='/addresses/first_free/', params=params)
         return req
-    
+
     def add_address_first_free(self, subnetId, hostname, ticket):
         params = {'subnetId': subnetId, 'hostname': hostname, 'description': ticket}
         req = self.__api_send_request(endpoint='/addresses/first_free/', params=params, method='POST')
         return req
 
+    def get_subnet(self, subnet):
+        req = self.__api_send_request(endpoint=f'/subnets/cidr/{subnet}')
+        return req[0]['id']
 
-# Info subnet
-#res = requests.get(baseurl + '/subnets/', params={'id': '456'}, verify=False, headers={'token': token})
-#print(json.dumps(json.loads(res.text), indent=4))
-#
-## Info IP 
-#res = requests.get(baseurl + '/addresses/tags/', params={'id': '623'}, verify=False, headers={'token': token})
-#print(json.dumps(json.loads(res.text), indent=4))
-#
-## Info subnet 
-#res = requests.get(baseurl + '/subnets/cidr/10.50.0.0/22', verify=False, headers={'token': token})
-#print(json.dumps(json.loads(res.text), indent=4))
+    def del_address(self, address, subnetId):
+        req = self.__api_send_request(endpoint=f'/addresses/{address}/{subnetId}/', method='DELETE')
+        return req
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Adiciona ou remove reserva de IP no Ipam", epilog="by FF")
+    parser.version = '1.0'
+    parser.add_argument("--user", type=str, required=True)
+    parser.add_argument("--password", type=str, required=True)
+    parser.add_argument("--subnetid", type=str, required=True)
+    parser.add_argument("--action", choices=['add', 'del'], required=True)
+    parser.add_argument("--ipaddress", type=str, metavar='192.168.144.120')
+    parser.add_argument("--hostname", type=str)
+    parser.add_argument("--description", type=str)
+    parser.add_argument("-v", action='version')
+    args = parser.parse_args()
+    ipam = Ipam('https://ipam.local.domain', 'robot', args.user, args.password)
+    ipam.login()
+    if args.action == 'add':
+        if args.description and args.hostname:
+            resultIP = ipam.add_address_first_free(args.subnetid, args.hostname, args.description)
+            print(resultIP)
+        else:
+            print("Error: the following arguments are required: --hostname, --description")
+    else:
+        if args.ipaddress:
+            resultIP = ipam.del_address(args.ipaddress, args.subnetid)
+            print(resultIP)
+        else:
+            print("Error: the following arguments are required: --ipaddress")
